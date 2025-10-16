@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>UGS Infinite Runner — Kanban</title>
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* minimal tweaks */
+    .card { border-radius: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .card:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.08); transition: box-shadow .2s; }
+    .badge { border-radius: 9999px; padding: 2px 8px; font-size: 12px; }
+  </style>
+  <!-- React 18 UMD + Babel -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="min-h-screen w-full bg-gradient-to-b from-white to-slate-50">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useEffect } = React;
+
+    const STATUSES = ["To Do", "In Progress", "Blocked", "Done"];
+    const PRIORITIES = ["P0", "P1", "P2"];
+    const OWNERS = ["Backend", "Client", "Data/QA", "Ops"];
+    const STORAGE_KEY = "ugs-kanban-state-v1";
+
+    const seedTasks = [
+      // P0 — Backend
+      { id: "p0-b-1", title: "Define Cloud Save keys & defaults", desc: "Profile, Progression, Economy mirror, Challenges, Meta, Settings", owner: "Backend", priority: "P0", status: "To Do" },
+      { id: "p0-b-2", title: "SubmitRun service (validate+save+post)", desc: "Server-authoritative score path w/ sanity checks & metadata", owner: "Backend", priority: "P0", status: "To Do" },
+      { id: "p0-b-3", title: "AssignTier service (thresholds)", desc: "Threshold-based promotion/demotion, routes to tier board", owner: "Backend", priority: "P0", status: "To Do" },
+      { id: "p0-b-4", title: "Weekly cron (Mon 00:00 UTC)", desc: "Reset tier boards, archive personal weekly, trim to 12, recalc tiers", owner: "Ops", priority: "P0", status: "To Do" },
+      { id: "p0-b-5", title: "Cloud Save versioning & merge rules", desc: "Max(best), append-trim(history), monotonic timestamps", owner: "Backend", priority: "P0", status: "To Do" },
+      { id: "p0-b-6", title: "Anti-cheat core", desc: "distance/duration ratio, coin cap, one post per run, metadata version gate", owner: "Backend", priority: "P0", status: "To Do" },
+      { id: "p0-b-7", title: "Economy: run & daily grants", desc: "Server-only grants; cooldowns with UTC timestamps", owner: "Backend", priority: "P0", status: "To Do" },
+
+      // P0 — Client
+      { id: "p0-c-1", title: "Save pipeline (startup pull / end-run push)", desc: "Retries, offline queue, PlayerPrefs cache", owner: "Client", priority: "P0", status: "To Do" },
+      { id: "p0-c-2", title: "Personal stats UI", desc: "Lifetime/weekly/monthly bests, 12-week history", owner: "Client", priority: "P0", status: "To Do" },
+      { id: "p0-c-3", title: "Tier badge & weekly countdown", desc: "Show current tier, reset timer", owner: "Client", priority: "P0", status: "To Do" },
+
+      // P0 — Data/QA/Ops
+      { id: "p0-d-1", title: "Analytics core events", desc: "run_started, run_completed, reward_claimed, session_summary", owner: "Data/QA", priority: "P0", status: "To Do" },
+      { id: "p0-d-2", title: "Test plans: thresholds/rollovers", desc: "Boundary tests 19,999↔20,000 etc.; weekly archive/trim", owner: "Data/QA", priority: "P0", status: "To Do" },
+      { id: "p0-d-3", title: "Ops runbooks & rollback", desc: "Cron reset, audit logs, failure handling", owner: "Ops", priority: "P0", status: "To Do" },
+
+      // P1 — Backend
+      { id: "p1-b-1", title: "Monthly tier leaderboards", desc: "Reset on 1st 00:00 UTC; monthly archives (12 months)", owner: "Backend", priority: "P1", status: "To Do" },
+      { id: "p1-b-2", title: "Remote Config surface", desc: "Thresholds, reward tables, reset messaging", owner: "Backend", priority: "P1", status: "To Do" },
+      { id: "p1-b-3", title: "Anomaly monitoring & alerts", desc: "Rejected submissions, cron failures", owner: "Data/QA", priority: "P1", status: "To Do" },
+
+      // P1 — Client
+      { id: "p1-c-1", title: "Timers & promos UI", desc: "Daily/weekly resets; event banners", owner: "Client", priority: "P1", status: "To Do" },
+      { id: "p1-c-2", title: "Economy mirrors + claim UI", desc: "Show balances; daily claim flow", owner: "Client", priority: "P1", status: "To Do" },
+      { id: "p1-c-3", title: "Error states", desc: "Offline, rejected run, cooldowns", owner: "Client", priority: "P1", status: "To Do" },
+
+      // P2 — Enhancements
+      { id: "p2-b-1", title: "Regional partitions", desc: "{board}_{region} routing", owner: "Backend", priority: "P2", status: "To Do" },
+      { id: "p2-b-2", title: "Score decay mechanics", desc: "Prevent idling at top", owner: "Backend", priority: "P2", status: "To Do" },
+      { id: "p2-b-3", title: "Streak buffs", desc: "Rewards for sustained top performance", owner: "Backend", priority: "P2", status: "To Do" },
+      { id: "p2-b-4", title: "Friend/social filters", desc: "Optional over same boards", owner: "Client", priority: "P2", status: "To Do" },
+    ];
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return null;
+        return parsed;
+      } catch { return null; }
+    }
+
+    function saveState(tasks) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); } catch {}
+    }
+
+    function Badge({ children, className="" }) {
+      return <span className={`badge ${className}`}>{children}</span>;
+    }
+
+    function Select({ value, onChange, options }) {
+      return (
+        <select
+          value={value}
+          onChange={(e)=>onChange(e.target.value)}
+          className="h-8 px-2 border rounded-lg text-sm bg-white"
+        >
+          {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+        </select>
+      );
+    }
+
+    function TaskCard({ task, onUpdate }) {
+      const statusClasses = {
+        "To Do": "bg-gray-100 text-gray-800",
+        "In Progress": "bg-blue-100 text-blue-800",
+        "Blocked": "bg-amber-100 text-amber-800",
+        "Done": "bg-emerald-100 text-emerald-800",
+      };
+      return (
+        <div className="card p-4 bg-white space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-semibold text-sm leading-tight">{task.title}</h3>
+            <Badge className="bg-slate-100 text-slate-800">{task.priority}</Badge>
+          </div>
+          <p className="text-xs text-slate-500">{task.desc}</p>
+          <div className="flex items-center gap-2">
+            <Badge className={statusClasses[task.status] + " px-2 py-0.5"}>{task.status}</Badge>
+            <Badge className="bg-purple-100 text-purple-800">{task.owner}</Badge>
+          </div>
+          <div className="flex items-center gap-2 justify-between">
+            <Select value={task.owner} onChange={(v)=>onUpdate({ ...task, owner: v })} options={OWNERS} />
+            <Select value={task.status} onChange={(v)=>onUpdate({ ...task, status: v })} options={STATUSES} />
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [tasks, setTasks] = useState(() => loadState() || seedTasks);
+      const [priorityFilter, setPriorityFilter] = useState("P0");
+      const [ownerFilter, setOwnerFilter] = useState("All");
+      const [query, setQuery] = useState("");
+
+      useEffect(() => { saveState(tasks); }, [tasks]);
+
+      const filtered = useMemo(() => {
+        return tasks.filter((t) =>
+          (priorityFilter === "All" || t.priority === priorityFilter) &&
+          (ownerFilter === "All" || t.owner === ownerFilter) &&
+          (query.trim() === "" || (t.title + " " + t.desc).toLowerCase().includes(query.toLowerCase()))
+        );
+      }, [tasks, priorityFilter, ownerFilter, query]);
+
+      const byStatus = useMemo(() => {
+        const map = { "To Do": [], "In Progress": [], "Blocked": [], "Done": [] };
+        filtered.forEach((t) => map[t.status].push(t));
+        return map;
+      }, [filtered]);
+
+      const updateTask = (updated) => {
+        setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      };
+
+      const exportJSON = () => {
+        const blob = new Blob([JSON.stringify(tasks, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "kanban_tasks.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      const importJSON = (file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const parsed = JSON.parse(e.target.result);
+            if (Array.isArray(parsed)) setTasks(parsed);
+            else alert("Invalid JSON format: expected an array of tasks.");
+          } catch {
+            alert("Failed to parse JSON.");
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      const resetBoard = () => {
+        if (confirm("Reset board to seed tasks? This will overwrite your local changes.")) {
+          setTasks(seedTasks);
+        }
+      };
+
+      return (
+        <div className="max-w-7xl mx-auto p-6 space-y-6">
+          <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold">UGS Infinite Runner — Kanban</h1>
+              <p className="text-sm text-slate-500">Swimlanes by Priority • Status Columns • Owner tags • Local persistence</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={priorityFilter} onChange={(e)=>setPriorityFilter(e.target.value)} className="h-9 px-2 border rounded-lg bg-white text-sm">
+                {["P0","P1","P2","All"].map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <select value={ownerFilter} onChange={(e)=>setOwnerFilter(e.target.value)} className="h-9 px-2 border rounded-lg bg-white text-sm">
+                {["All", ...OWNERS].map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+              <input className="h-9 w-56 px-3 border rounded-lg text-sm" placeholder="Search tasks..." value={query} onChange={(e)=>setQuery(e.target.value)} />
+              <button onClick={exportJSON} className="h-9 px-3 rounded-lg bg-slate-900 text-white text-sm">Export</button>
+              <label className="h-9 px-3 rounded-lg bg-slate-100 border text-sm flex items-center cursor-pointer">
+                Import<input type="file" accept="application/json" className="hidden" onChange={(e)=>e.target.files[0] && importJSON(e.target.files[0])} />
+              </label>
+              <button onClick={resetBoard} className="h-9 px-3 rounded-lg bg-white border text-sm">Reset</button>
+            </div>
+          </header>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {STATUSES.map((status) => (
+              <div key={status} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold">{status}</h2>
+                  <span className="badge border border-slate-200">{byStatus[status].length}</span>
+                </div>
+                <div className="space-y-3">
+                  {byStatus[status].map((task) => (
+                    <TaskCard key={task.id} task={task} onUpdate={updateTask} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <footer className="pt-4 text-xs text-slate-500">
+            <p>State is saved to <code>localStorage</code> on this domain. Export/Import to move between devices. This single-file app is ready for GitHub Pages.</p>
+          </footer>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
