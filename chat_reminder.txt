@@ -1,7 +1,7 @@
-Chat Reminder
-
-Title: UGS Infinite Runner — Kanban (Canvas: "Ugs Infinite Runner • Clickable Kanban")
-Chat URL: [Add your chat URL here after you open/share this conversation]
+GPTChat Project URL: https://chatgpt.com/g/g-p-68f23754143481919eeccbcea0a711e6/project 
+  - Specific Chat name: Cloud Save vs PlayerPrefs: https://chatgpt.com/g/g-p-68f23754143481919eeccbcea0a711e6/c/68f0fa00-ee24-8322-9144-004e38527fd0
+Github code URL: https://github.com/crawfis/CrawfisDashPages
+GitHub Pages (included Kanban board): https://crawfis.github.io/CrawfisDashPages/
 
 Date: Thursday, October 16, 2025
 Name: Prof. Roger Crawfis
